@@ -5,6 +5,9 @@
                 "builtin": true,
                 "node": true
         },
+        "globals": {
+                "Bun": "readonly"
+        },
         "ignorePatterns": [],
         "options": {
                 "denyWarnings": false,
@@ -473,7 +476,7 @@
                 "unicorn/no-array-reduce": ["error", { "allowSimpleOperations": true }],
                 "unicorn/no-array-reverse": "error",
                 "unicorn/no-array-sort": "error",
-                "unicorn/no-await-expression-member": "error",
+                "unicorn/no-await-expression-member": "off",
                 "unicorn/no-await-in-promise-methods": "error",
                 "unicorn/no-confusing-array-with": "error",
                 "unicorn/no-console-spaces": "error",

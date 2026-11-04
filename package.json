@@ -5,7 +5,7 @@
         "type": "module",
         "main": "./src/main.js",
         "scripts": {
-                "dev": "bun --watch run ./src/main.js",
+                "dev": "bun run ./src/main.js",
                 "fmt": "oxfmt --disable-nested-config",
                 "fmt:check": "oxfmt --disable-nested-config --check",
                 "lint": "oxlint --disable-nested-config",
