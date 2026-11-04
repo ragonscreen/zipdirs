@@ -68,11 +68,37 @@ const getZipEntries = async (pathInput) => {
         return zipEntries;
 };
 
+const getHumanReadableSize = (sizeBytes) => {
+        let size = sizeBytes;
+        let unit = 'B';
+
+        if (sizeBytes < 1024) {
+                // pass
+        } else if (sizeBytes < 1_048_576) {
+                size >>= 10;
+                unit = 'KiB';
+        } else if (sizeBytes < 1_073_741_824) {
+                size >>= 20;
+                unit = 'MiB';
+        } else {
+                size = Math.floor(sizeBytes / 1_073_741_824);
+                unit = 'GiB';
+        }
+
+        return `${size} ${unit}`;
+};
+
 const processZipEntries = async (zipEntries) => {
+        const cntEntries = zipEntries.length - 2;
+        const padLen = Math.floor(Math.log10(cntEntries)) + 1;
+        let entryIdx = 0;
+
         for await (const { name, path, size } of zipEntries) {
                 if (path === DIR_INPUTS || path === DIR_OUTPUT) continue;
 
-                console.log(`Processing entry: "${name}"`);
+                const msgPrefix = `[${String(++entryIdx).padStart(padLen, '0')} of ${cntEntries}] `;
+                const msgInfo = `Processing entry: "${name}" with size ${getHumanReadableSize(size)}`;
+                console.log(msgPrefix + msgInfo);
 
                 const archiveLocation = join(DIR_OUTPUT, name);
                 const archiveName = join(archiveLocation, name);
@@ -83,7 +109,7 @@ const processZipEntries = async (zipEntries) => {
                 if (size > VOLUME_SIZE_BYTES) cmd.push(`-v${VOLUME_SIZE_BYTES}`);
                 cmd.push(`${archiveName}.7z`, `${path}`);
 
-                const proc = Bun.spawn(cmd);
+                const proc = Bun.spawn(cmd, { stdout: 'inherit' });
                 const exitCode = await proc.exited;
 
                 console.log(`Entry processed with exit code ${exitCode}.\n`);
