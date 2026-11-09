@@ -1,10 +1,127 @@
 import { access, constants, mkdir, readdir, stat, rename } from 'node:fs/promises';
-import { join } from 'node:path/posix';
-import { argv, env } from 'node:process';
+import { join, dirname } from 'node:path/posix';
+import { argv } from 'node:process';
+import { parseArgs } from 'node:util';
 
-const VOLUME_SIZE_BYTES = 2_096_128; // TEST: 2 MiB - 1 KiB
+const HELP_TEXT = `
+
+zip-dirs
+usage: zipdirs [OPTIONS] DIR
+
+Zip the contents of DIR (the current directory by default) into separate
+archives using 7zip.
+
+options:
+    -p, --password PASS    set archive password to PASS (default: none)
+
+    -s, --volume-size-bytes SIZE
+                           set size of each volume to SIZE in bytes
+                           (default: 2'146'435'072 = 2 GiB - 1 MiB)
+
+    -x, --no-volumes       do not create volumes (default: false)
+    -y, --yes              proceed without confirmation (default: false)
+    -h, --help             display this help text and exit
+
+example usage:
+    zipdirs -s 1048576 "/home/user/docs"
+        zip contents of directory "/home/user/docs" into new archives with
+        volumes of size 1 MiB each.
+
+`;
+
+const VOLUME_SIZE_BYTES_DEFAULT = 2_146_435_072; // 2 GiB - 1 MiB
+let VOLUME_SIZE_BYTES = VOLUME_SIZE_BYTES_DEFAULT;
 let DIR_INPUTS = '';
 let DIR_OUTPUT = '';
+
+const parseCliArgs = () => {
+        const argsProcessed = parseArgs({
+                args: argv.slice(2),
+                options: {
+                        'help': { type: 'boolean', short: 'h' },
+                        'yes': { type: 'boolean', short: 'y' },
+                        'password': { type: 'string', short: 'p' },
+                        'volume-size-bytes': { type: 'string', short: 's' },
+                        'no-volumes': { type: 'boolean', short: 'x' },
+                },
+                strict: true,
+                allowPositionals: true,
+        });
+
+        const { values, positionals } = argsProcessed;
+        const dirInput = positionals[0] ?? dirname(argv[1]);
+        const {
+                help,
+                password,
+                yes,
+                'volume-size-bytes': volumeSizeBytes,
+                'no-volumes': noVolumes,
+        } = values;
+
+        if (help) {
+                console.log(HELP_TEXT);
+                process.exit(0);
+        }
+
+        return { dirInput, password, yes, volumeSizeBytes, noVolumes };
+};
+
+const validateVolumeSize = (volumeSize) => {
+        VOLUME_SIZE_BYTES = Number(volumeSize);
+
+        if (!Number.isInteger(VOLUME_SIZE_BYTES)) {
+                console.warn('\n[WARN] Volume size must be an integer, proceeding with default.');
+                VOLUME_SIZE_BYTES = VOLUME_SIZE_BYTES_DEFAULT;
+        }
+
+        if (VOLUME_SIZE_BYTES <= 0) {
+                console.warn('\n[WARN] Volume size must be positive, proceeding with default.');
+                VOLUME_SIZE_BYTES = VOLUME_SIZE_BYTES_DEFAULT;
+        }
+
+        if (VOLUME_SIZE_BYTES > Number.MAX_SAFE_INTEGER) {
+                console.warn('\n[WARN] Volume size too high, proceeding with default.');
+                VOLUME_SIZE_BYTES = VOLUME_SIZE_BYTES_DEFAULT;
+        }
+};
+
+const displayConfirmationPrompt = ({ dirInput, password, noVolumes }) => {
+        const strVolumeSize = new Intl.NumberFormat('en-US', {
+                style: 'unit',
+                unit: 'byte',
+                unitDisplay: 'long',
+        }).format(VOLUME_SIZE_BYTES);
+
+        let promptMsg = `
+Directory     : ${dirInput}
+Password      : ${password || '[none]'}
+Create Volumes: ${noVolumes ? 'No' : 'Yes'}`;
+
+        if (!noVolumes) promptMsg += `\nVolume Size   : ${strVolumeSize}`;
+        promptMsg += '\n\nProceed with these options? (Y/n)';
+        const response = prompt(promptMsg);
+        const received = (response ?? 'y').trim().toLowerCase();
+        console.log();
+
+        if (received.startsWith('n') || received.startsWith('q')) {
+                console.log('Aborted.');
+                process.exit(0);
+        }
+};
+
+const getUserConfirmation = () => {
+        const { dirInput, password, yes, volumeSizeBytes, noVolumes } = parseCliArgs();
+
+        if (!dirInput) {
+                console.log(HELP_TEXT);
+                process.exit(0);
+        }
+
+        if (!noVolumes && volumeSizeBytes) validateVolumeSize(volumeSizeBytes);
+        if (!yes) displayConfirmationPrompt({ dirInput, password, noVolumes });
+
+        return { dirInput, password, createVolumes: !noVolumes };
+};
 
 const confirmPathValidity = async (pathName) => {
         try {
@@ -12,28 +129,32 @@ const confirmPathValidity = async (pathName) => {
                 await readdir(pathName, { recursive: true });
         } catch (err) {
                 let errMessage = '';
+                let logOriginalError = false;
 
                 switch (err.code) {
                         case 'EACCES':
-                                errMessage = `Unable to access path "${pathName}". Check your permissions.`;
+                                errMessage = `Unable to access path "${pathName}". Check your permissions.\n`;
                                 break;
                         case 'ENOENT':
                         case 'ENOTDIR':
-                                errMessage = `Unable to read from path "${pathName}". Path either does not exist or is not a directory.`;
+                                errMessage = `Unable to read from path "${pathName}". Path either does not exist or is not a directory.\n`;
                                 break;
                         default:
-                                errMessage = `Something went wrong.`;
+                                errMessage = `Something went wrong.\n`;
+                                logOriginalError = true;
                                 break;
                 }
 
-                throw new Error(errMessage, { cause: err });
+                console.error(errMessage);
+                if (logOriginalError) console.error(err);
+                process.exit(1);
         }
 };
 
-const createWorkingDirectories = async (pathInput) => {
+const createWorkingDirectories = async (dirInput) => {
         const timestamp = Date.now();
-        DIR_INPUTS = join(pathInput, `__00_inputs_${timestamp}`);
-        DIR_OUTPUT = join(pathInput, `__00_output_${timestamp}`);
+        DIR_INPUTS = join(dirInput, `__00_inputs_${timestamp}`);
+        DIR_OUTPUT = join(dirInput, `__00_output_${timestamp}`);
 
         await mkdir(DIR_INPUTS, { recursive: true });
         await mkdir(DIR_OUTPUT, { recursive: true });
@@ -52,8 +173,8 @@ const getDirSize = async (pathToDir) => {
         return dirSizeBytes;
 };
 
-const getZipEntries = async (pathInput) => {
-        const dirents = await readdir(pathInput, { withFileTypes: true });
+const getZipEntries = async (dirInput) => {
+        const dirents = await readdir(dirInput, { withFileTypes: true });
         const zipEntries = [];
 
         for await (const dirent of dirents) {
@@ -88,7 +209,8 @@ const getHumanReadableSize = (sizeBytes) => {
         return `${size} ${unit}`;
 };
 
-const processZipEntries = async (zipEntries) => {
+const processZipEntries = async (zipEntries, config) => {
+        const { password, createVolumes } = config;
         const cntEntries = zipEntries.length - 2;
         const padLen = Math.floor(Math.log10(cntEntries)) + 1;
         let entryIdx = 0;
@@ -105,20 +227,22 @@ const processZipEntries = async (zipEntries) => {
                 await mkdir(archiveLocation, { recursive: true });
 
                 const cmd = ['7z', 'a', '-t7z', '-bso0', '-mx0'];
-                if (env.ARCHIVE_PASS) cmd.push('-mhe', `-p${env.ARCHIVE_PASS}`);
-                if (size > VOLUME_SIZE_BYTES) cmd.push(`-v${VOLUME_SIZE_BYTES}`);
-                cmd.push(`${archiveName}.7z`, `${path}`);
+                if (password) cmd.push('-mhe', `-p${password}`);
+                if (createVolumes && size > VOLUME_SIZE_BYTES) cmd.push(`-v${VOLUME_SIZE_BYTES}`);
+                cmd.push(`${archiveName}.7z`, path);
 
                 const proc = Bun.spawn(cmd, { stdout: 'inherit' });
                 const exitCode = await proc.exited;
-
-                console.log(`Entry processed with exit code ${exitCode}.\n`);
+                const processMsg = exitCode
+                        ? `Unable to process entry, exit code ${exitCode}.\n`
+                        : `Entry processed.\n`;
+                console.log(processMsg);
 
                 await rename(path, join(DIR_INPUTS, name));
         }
 };
 
-const arrangeZipEntriesByParts = async () => {
+const arrangeOutputByParts = async () => {
         const entries = await readdir(DIR_OUTPUT, { withFileTypes: true });
 
         for await (const { parentPath, name } of entries) {
@@ -146,15 +270,15 @@ const arrangeZipEntriesByParts = async () => {
 };
 
 const main = async () => {
-        const pathInput = argv[2];
-        await confirmPathValidity(pathInput);
-        await createWorkingDirectories(pathInput);
+        const { dirInput, password, createVolumes } = getUserConfirmation();
+        await confirmPathValidity(dirInput);
+        await createWorkingDirectories(dirInput);
 
-        const zipEntries = await getZipEntries(pathInput);
-        await processZipEntries(zipEntries);
-        await arrangeZipEntriesByParts();
+        const zipEntries = await getZipEntries(dirInput);
+        await processZipEntries(zipEntries, { password, createVolumes });
+        await arrangeOutputByParts();
 
-        console.log(`All entries processed.`);
+        console.log('All entries processed.');
 };
 
 await main();
