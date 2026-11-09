@@ -63,7 +63,7 @@ const parseCliArgs = () => {
                 process.exit(0);
         }
 
-        return { dirInput, password, yes, volumeSizeBytes, noVolumes };
+        return { dirInput, password, confirmOptions: yes, volumeSizeBytes, noVolumes };
 };
 
 const validateVolumeSize = (volumeSize) => {
@@ -85,7 +85,7 @@ const validateVolumeSize = (volumeSize) => {
         }
 };
 
-const displayConfirmationPrompt = ({ dirInput, password, noVolumes }) => {
+const displaySelectedOptions = ({ confirmOptions, dirInput, password, noVolumes }) => {
         const strVolumeSize = new Intl.NumberFormat('en-US', {
                 style: 'unit',
                 unit: 'byte',
@@ -98,19 +98,26 @@ Password      : ${password || '[none]'}
 Create Volumes: ${noVolumes ? 'No' : 'Yes'}`;
 
         if (!noVolumes) promptMsg += `\nVolume Size   : ${strVolumeSize}`;
-        promptMsg += '\n\nProceed with these options? (Y/n)';
-        const response = prompt(promptMsg);
-        const received = (response ?? 'y').trim().toLowerCase();
-        console.log();
 
-        if (received.startsWith('n') || received.startsWith('q')) {
-                console.log('Aborted.');
-                process.exit(0);
+        if (confirmOptions) {
+                promptMsg += '\n\nProceeding with these options.';
+                console.log(promptMsg);
+                console.log();
+        } else {
+                promptMsg += '\n\nProceed with these options? (Y/n)';
+                const response = prompt(promptMsg);
+                const received = (response ?? 'y').trim().toLowerCase();
+                console.log();
+
+                if (received.startsWith('n') || received.startsWith('q')) {
+                        console.log('Aborted. No changes made to file system.');
+                        process.exit(0);
+                }
         }
 };
 
-const getUserConfirmation = () => {
-        const { dirInput, password, yes, volumeSizeBytes, noVolumes } = parseCliArgs();
+const getArchiveOptions = () => {
+        const { dirInput, password, confirmOptions, volumeSizeBytes, noVolumes } = parseCliArgs();
 
         if (!dirInput) {
                 console.log(HELP_TEXT);
@@ -118,7 +125,7 @@ const getUserConfirmation = () => {
         }
 
         if (!noVolumes && volumeSizeBytes) validateVolumeSize(volumeSizeBytes);
-        if (!yes) displayConfirmationPrompt({ dirInput, password, noVolumes });
+        displaySelectedOptions({ confirmOptions, dirInput, password, noVolumes });
 
         return { dirInput, password, createVolumes: !noVolumes };
 };
@@ -223,13 +230,13 @@ const processZipEntries = async (zipEntries, config) => {
                 console.log(msgPrefix + msgInfo);
 
                 const archiveLocation = join(DIR_OUTPUT, name);
-                const archiveName = join(archiveLocation, name);
+                const archiveName = `${join(archiveLocation, name)}.7z`;
                 await mkdir(archiveLocation, { recursive: true });
 
                 const cmd = ['7z', 'a', '-t7z', '-bso0', '-mx0'];
                 if (password) cmd.push('-mhe', `-p${password}`);
                 if (createVolumes && size > VOLUME_SIZE_BYTES) cmd.push(`-v${VOLUME_SIZE_BYTES}`);
-                cmd.push(`${archiveName}.7z`, path);
+                cmd.push(archiveName, path);
 
                 const proc = Bun.spawn(cmd, { stdout: 'inherit' });
                 const exitCode = await proc.exited;
@@ -270,7 +277,7 @@ const arrangeOutputByParts = async () => {
 };
 
 const main = async () => {
-        const { dirInput, password, createVolumes } = getUserConfirmation();
+        const { dirInput, password, createVolumes } = getArchiveOptions();
         await confirmPathValidity(dirInput);
         await createWorkingDirectories(dirInput);
 
@@ -278,7 +285,7 @@ const main = async () => {
         await processZipEntries(zipEntries, { password, createVolumes });
         await arrangeOutputByParts();
 
-        console.log('All entries processed.');
+        console.log(`All entries processed. Archives are in "${DIR_OUTPUT}".`);
 };
 
 await main();
