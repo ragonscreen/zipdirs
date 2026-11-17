@@ -27,9 +27,9 @@ Usage: 7z <command> [<switches>...] <archive_name> [<file_names>...] [@listfile]
 
 ## Installation
 
-Download the singular file `src/main.js` which contains the entire script, and
-preferably save it as `zipdirs.js` (or get the entire project folder using
-`git clone`).
+Download the singular file [`src/main.js`](./src/main.js) which contains the
+entire script, and preferably save it as `zipdirs.js` (or get the entire project
+folder using `git clone`).
 
 ## Usage
 
@@ -54,16 +54,16 @@ zipdirs() {
 ```
 
 Replace `"/home/<USER>/Downloads/zipdirs.js"` with the path you downloaded the
-folder/file to.
+file to.
 
 ### Options
 
 - `-h`, `--help` - Display help text
 - `-p`, `--password` `PASS` - Set archive password to `PASS` (default: none)
 - `-s`, `--volume-size-bytes` `SIZE` - Set size of each volume to `SIZE` in
-  bytes (default: 2'146'435'072 = 2 GiB - 1 MiB)
-- `-x`, `--no-volumes` - Do not create volumes (default: false)
-- `-y`, `--yes` - Proceed without confirmation (default: false)
+  bytes (default: `2'146'435'072 = 2 GiB - 1 MiB`)
+- `-x`, `--no-volumes` - Do not create volumes (default: `false`)
+- `-y`, `--yes` - Proceed without confirmation (default: `false`)
 
 ### Examples
 
