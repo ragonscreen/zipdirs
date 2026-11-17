@@ -1,6 +1,6 @@
 import { access, constants, mkdir, readdir, stat, rename } from 'node:fs/promises';
-import { join, dirname } from 'node:path/posix';
-import { argv } from 'node:process';
+import { join } from 'node:path/posix';
+import { argv, cwd } from 'node:process';
 import { parseArgs } from 'node:util';
 
 const HELP_TEXT = `
@@ -49,7 +49,7 @@ const parseCliArgs = () => {
         });
 
         const { values, positionals } = argsProcessed;
-        const dirInput = positionals[0] ?? dirname(argv[1]);
+        const dirInput = positionals[0] ?? cwd();
         const {
                 help,
                 password,
@@ -58,7 +58,7 @@ const parseCliArgs = () => {
                 'no-volumes': noVolumes,
         } = values;
 
-        if (help) {
+        if (help || !dirInput) {
                 console.log(HELP_TEXT);
                 process.exit(0);
         }
@@ -118,11 +118,6 @@ Create Volumes: ${noVolumes ? 'No' : 'Yes'}`;
 
 const getArchiveOptions = () => {
         const { dirInput, password, confirmOptions, volumeSizeBytes, noVolumes } = parseCliArgs();
-
-        if (!dirInput) {
-                console.log(HELP_TEXT);
-                process.exit(0);
-        }
 
         if (!noVolumes && volumeSizeBytes) validateVolumeSize(volumeSizeBytes);
         displaySelectedOptions({ confirmOptions, dirInput, password, noVolumes });
